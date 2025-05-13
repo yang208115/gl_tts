@@ -23,11 +23,11 @@ from nekro_agent.core import logger
 # 插件实例
 plugin = NekroPlugin(
     name="语音合成插件",
-    module_name="tts",
+    module_name="gl_tts",
     description="提供文本到语音合成功能",
     version="1.0.0",
-    author="AI开发者",
-    url="https://github.com/yang208115/GL_TTS",
+    author="运阳",
+    url="https://github.com/yang208115/gl_tts",
 )
 
 # 定义可配置项
