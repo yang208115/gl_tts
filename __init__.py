@@ -1,112 +1,189 @@
-"""这是一个示例天气查询插件
+"""原神语音合成
 
-提供指定城市的天气查询功能。
-使用 wttr.in API 获取天气数据。
+原神角色语音BertVITS2模型V1版是人工智能语音合成模型。
+基于深度学习技术，结合BERT语言理解与VITS语音合成技术，
+实现自然流畅的语音输出。它根据文本输入生成与角色声音特征匹配的语音，
+优化了语音自然度、情感表达和合成准确性，使角色语音贴近原角色特点，
+为玩家带来真实愉悦的听觉享受。
 """
 
-from typing import Dict
+import os
+import tempfile
+from typing import Dict, Any
+httpx = dynamic_importer("httpx")
+# from gradio_client import Client
+gradio_client = dynamic_importer("gradio_client")
+Client = gradio_client.Client
+from pydantic import BaseModel, Field
 
-import httpx
+from nekro_agent.services.plugin.base import NekroPlugin, ConfigBase, SandboxMethodType
 from nekro_agent.api.schemas import AgentCtx
 from nekro_agent.core import logger
-from nekro_agent.services.plugin.base import ConfigBase, NekroPlugin, SandboxMethodType
-from pydantic import Field
 
-# TODO: 插件元信息，请修改为你的插件信息
+# 插件实例
 plugin = NekroPlugin(
-    name="天气查询插件",  # TODO: 插件名称
-    module_name="weather",  # TODO: 插件模块名 (如果要发布该插件，需要在 NekroAI 社区中唯一)
-    description="提供指定城市的天气查询功能",  # TODO: 插件描述
-    version="1.0.0",  # TODO: 插件版本
-    author="KroMiose",  # TODO: 插件作者
-    url="https://github.com/KroMiose/nekro-plugin-template",  # TODO: 插件仓库地址
+    name="语音合成插件",
+    module_name="tts",
+    description="提供文本到语音合成功能",
+    version="1.0.0",
+    author="AI开发者",
+    url="https://github.com/yang208115/GL_TTS",
 )
 
-
-# TODO: 插件配置，根据需要修改
+# 定义可配置项
 @plugin.mount_config()
-class WeatherConfig(ConfigBase):
-    """天气查询配置"""
-
+class TTSConfig(ConfigBase):
+    """语音合成配置"""
     API_URL: str = Field(
-        default="https://wttr.in/",
-        title="天气API地址",
-        description="天气查询API的基础URL",
+        default="https://aiboycoder-hoyotts.ms.show/",
+        title="TTS API URL",
+        description="TTS服务的基础URL",
     )
     TIMEOUT: int = Field(
-        default=10,
-        title="请求超时时间",
+        default=30,
+        title="API Timeout",
         description="API请求的超时时间(秒)",
     )
+    KEEP_TMP_FILE: bool = Field(
+        default=False,
+        title="Keep Temporary File",
+        description="调试用，生产环境应保持关闭",
+    )
+    LOG_LEVEL: str = Field(
+        default="INFO",
+        title="Log Level",
+        description="日志级别",
+    )
+    HTTP_RETRY_COUNT: int = Field(
+        default=3,
+        title="HTTP Retry Count",
+        description="HTTP请求重试次数",
+    )
+    DEFAULT_SPEAKER: str = Field(
+        default="莱依拉",
+        title="Default Speaker",
+        description="默认发音人名称",
+    )
+    DEFAULT_SDP_RATIO: float = Field(
+        default=0.2,
+        title="Default SDP Ratio",
+        description="默认SDP/混合比例（0-1）",
+    )
+    DEFAULT_NOISE_SCALE: float = Field(
+        default=0.6,
+        title="Default Noise Scale",
+        description="默认噪声比例",
+    )
+    DEFAULT_NOISE_SCALE_W: float = Field(
+        default=0.8,
+        title="Default Noise Scale W",
+        description="默认音素长度噪声比例",
+    )
+    DEFAULT_LENGTH_SCALE: float = Field(
+        default=1,
+        title="Default Length Scale",
+        description="默认语速比例（1为正常）",
+    )
 
+# 获取配置
+config = plugin.get_config(TTSConfig)
 
-# 获取配置实例
-config: WeatherConfig = plugin.get_config(WeatherConfig)
-
-
-@plugin.mount_sandbox_method(SandboxMethodType.AGENT, name="查询天气", description="查询指定城市的实时天气信息")
-async def query_weather(_ctx: AgentCtx, city: str) -> str:
-    """查询指定城市的实时天气信息。
-
+@plugin.mount_sandbox_method(
+    SandboxMethodType.TOOL,
+    name="生成语音",
+    description="将文本转换为语音并返回音频字节数据",
+)
+async def generate_speech(
+    _ctx: AgentCtx,
+    content: str,
+    speaker: str = None,
+    sdp_ratio: float = None,
+    noise_scale: float = None,
+    noise_scale_w: float = None,
+    length_scale: float = None
+) -> bytes:
+    """文本转语音合成方法
+    
     Args:
-        city: 需要查询天气的城市名称，例如 "北京", "London"。
+        content: 需要合成的文本内容
+        speaker: 发音人名称（如"莱依拉"）
+        sdp_ratio: SDP/混合比例（0-1，推荐0.2）
+        noise_scale: 噪声比例（推荐0.6）
+        noise_scale_w: 音素长度噪声比例（推荐0.8）
+        length_scale: 语速比例（1为正常，越大越慢）
 
     Returns:
-        str: 包含城市实时天气信息的字符串。查询失败时返回错误信息。
+        bytes: 音频文件的字节数据（WAV格式）
+
+    Raises:
+        ValueError: 当输入参数不符合要求时
+        RuntimeError: 当API调用失败时
 
     Example:
-        查询北京的天气:
-        query_weather(city="北京")
-        查询伦敦的天气:
-        query_weather(city="London")
+        generate_speech("你好")
     """
     try:
-        async with httpx.AsyncClient(timeout=config.TIMEOUT) as client:
-            response = await client.get(f"{config.API_URL}{city}?format=j1")
-            response.raise_for_status()
-            data: Dict = response.json()
+        # 参数校验
+        def validate_param(param, param_name, default_value, min_value=None, max_value=None):
+            if param is None:
+                return default_value
+            if min_value is not None and param < min_value:
+                raise ValueError(f"{param_name}不能小于{min_value}")
+            if max_value is not None and param > max_value:
+                raise ValueError(f"{param_name}不能大于{max_value}")
+            return param
 
-        # 提取需要的天气信息
-        # wttr.in 的 JSON 结构可能包含 current_condition 列表
-        if not data.get("current_condition"):
-            logger.warning(f"城市 '{city}' 的天气数据格式不符合预期，缺少 'current_condition'")
-            return f"未能获取到城市 '{city}' 的有效天气数据，请检查城市名称是否正确。"
+        speaker = validate_param(speaker, "speaker", config.DEFAULT_SPEAKER)
+        sdp_ratio = validate_param(sdp_ratio, "sdp_ratio", config.DEFAULT_SDP_RATIO, 0, 1)
+        noise_scale = validate_param(noise_scale, "noise_scale", config.DEFAULT_NOISE_SCALE, 0, 1)
+        noise_scale_w = validate_param(noise_scale_w, "noise_scale_w", config.DEFAULT_NOISE_SCALE_W, 0, 1)
+        length_scale = validate_param(length_scale, "length_scale", config.DEFAULT_LENGTH_SCALE, 0)
 
-        # 处理获取到的天气数据
-        current_condition = data["current_condition"][0]
-        temp_c = current_condition.get("temp_C")
-        feels_like_c = current_condition.get("FeelsLikeC")
-        humidity = current_condition.get("humidity")
-        weather_desc_list = current_condition.get("weatherDesc", [])
-        weather_desc = weather_desc_list[0].get("value") if weather_desc_list else "未知"
-        wind_speed_kmph = current_condition.get("windspeedKmph")
-        wind_dir = current_condition.get("winddir16Point")
-        visibility = current_condition.get("visibility")
-        pressure = current_condition.get("pressure")
+        # 设置日志级别
+        logger.setLevel(config.LOG_LEVEL)
 
-        # 格式化返回结果
-        result = (
-            f"城市: {city}\n"
-            f"天气状况: {weather_desc}\n"
-            f"温度: {temp_c}°C\n"
-            f"体感温度: {feels_like_c}°C\n"
-            f"湿度: {humidity}%\n"
-            f"风向: {wind_dir}\n"
-            f"风速: {wind_speed_kmph} km/h\n"
-            f"能见度: {visibility} km\n"
-            f"气压: {pressure} hPa"
-        )
-        logger.info(f"已查询到城市 '{city}' 的天气")
+        # 创建临时目录用于存储文件
+        with tempfile.TemporaryDirectory() as tmpdir:
+            client = Client(config.API_URL, output_dir=tmpdir)
+            
+            # 向API发送请求
+            result_path = await client.predict(
+                content,
+                speaker,
+                sdp_ratio,
+                noise_scale,
+                noise_scale_w,
+                length_scale,
+                api_name="/predict"
+            )
+            
+            # 读取音频文件
+            with open(result_path, "rb") as f:
+                audio_data = f.read()
+            
+            # 如果不需要保留临时文件，删除文件
+            if not config.KEEP_TMP_FILE:
+                os.remove(result_path)
+            
+            return audio_data
+
+    except httpx.RequestError as e:
+        logger.error(f"TTS Request Failed: {str(e)}")
+        raise RuntimeError(f"TTS Service Connection Failed: {str(e)}") from e
+    except httpx.HTTPStatusError as e:
+        logger.error(f"TTS HTTP Error: {e.response.status_code}")
+        raise RuntimeError(f"TTS Service Returned Error: {e.response.status_code}") from e
+    except IOError as e:
+        logger.error(f"File Operation Failed: {str(e)}")
+        raise RuntimeError("Audio File Processing Failed") from e
+    except ValueError as e:
+        logger.error(f"Parameter Validation Failed: {str(e)}")
+        raise
     except Exception as e:
-        # 捕获其他所有未知异常
-        logger.exception(f"查询城市 '{city}' 天气时发生未知错误: {e}")
-        return f"查询 '{city}' 天气时发生内部错误。"
-    else:
-        return result
-
+        logger.error(f"Unknown Error: {str(e)}")
+        raise RuntimeError(f"TTS Failed: {str(e)}") from e
 
 @plugin.mount_cleanup_method()
 async def clean_up():
     """清理插件资源"""
-    # 如果有使用数据库连接、文件句柄或其他需要释放的资源，在此处添加清理逻辑
-    logger.info("天气查询插件资源已清理。")
+    logger.info("TTS Plugin Resources Cleaned Up")
