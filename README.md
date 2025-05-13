@@ -1,101 +1,57 @@
-# NekroAgent 插件模板
+# 语音合成插件介绍
 
-> 一个帮助开发者快速创建 NekroAgent 插件的模板仓库。
+本插件是基于 NekroAgent 开发的语音合成工具，利用原神角色语音 BertVITS2 模型 V1 版，能够将输入的文本转换为自然流畅的语音。此模型结合了 BERT 语言理解与 VITS 语音合成技术，优化了语音自然度、情感表达和合成准确性，输出的语音可高度贴近原神角色的声音特点。
 
-## 🚀 快速开始
+## 插件核心信息
+### 基本配置
+- **名称**：语音合成插件
+- **模块名**：gl_tts
+- **描述**：提供文本到语音合成功能
+- **版本**：1.0.0
+- **作者**：运阳
+- **仓库链接**：[https://github.com/yang208115/gl_tts](https://github.com/yang208115/gl_tts)
 
-### 1. 使用模板创建仓库
+### 可配置参数
+插件提供了一系列可配置参数，方便根据不同需求进行调整：
+- **API_URL**：TTS 服务的基础 URL，默认为 `https://aiboycoder-hoyotts.ms.show/`。
+- **TIMEOUT**：API 请求的超时时间（秒），默认为 30 秒。
+- **KEEP_TMP_FILE**：调试用开关，用于决定是否保留临时文件，生产环境应保持关闭。
+- **LOG_LEVEL**：日志级别，默认为 `INFO`。
+- **HTTP_RETRY_COUNT**：HTTP 请求重试次数，默认为 3 次。
+- **DEFAULT_SPEAKER**：默认发音人名称，默认为“莱依拉”。
+- **DEFAULT_SDP_RATIO**：默认 SDP/混合比例（0 - 1），推荐值为 0.2。
+- **DEFAULT_NOISE_SCALE**：默认噪声比例，推荐值为 0.6。
+- **DEFAULT_NOISE_SCALE_W**：默认音素长度噪声比例，推荐值为 0.8。
+- **DEFAULT_LENGTH_SCALE**：默认语速比例（1 为正常），越大越慢。
 
-1. 点击本仓库页面上的 "Use this template" 按钮
-2. 输入你的插件仓库名称，推荐命名格式：`nekro-plugin-[你的插件包名]`
-3. 选择公开或私有仓库
-4. 点击 "Create repository from template" 创建你的插件仓库
-
-### 2. 克隆你的插件仓库
-
-```bash
-git clone https://github.com/你的用户名/你的插件仓库名.git
-cd 你的插件仓库名
-```
-
-### 3. 安装依赖
-
-```bash
-# 安装 poetry 包管理工具
-pip install poetry
-
-# 设置虚拟环境目录在项目下
-poetry config virtualenvs.in-project true
-
-# 安装所有依赖
-poetry install
-```
-
-## 📝 插件开发指南
-
-### 插件结构
-
-一个标准的 NekroAgent 插件需要在 `__init__.py` 中提供一个 `plugin` 实例，这是插件的核心，用于注册插件功能和配置。
-
+### 主要功能
+插件的核心功能是文本转语音合成，通过 `generate_speech` 方法实现：
 ```python
-# 示例插件结构
-plugin = NekroPlugin(
-    name="你的插件名称",  # 插件显示名称
-    module_name="plugin_module_name",  # 插件模块名 (在NekroAI社区需唯一)
-    description="插件描述",  # 插件功能简介
-    version="1.0.0",  # 插件版本
-    author="你的名字",  # 作者信息
-    url="https://github.com/你的用户名/你的插件仓库名",  # 插件仓库链接
+@plugin.mount_sandbox_method(
+    SandboxMethodType.TOOL,
+    name="生成语音",
+    description="将文本转换为语音并返回音频字节数据",
 )
+async def generate_speech(
+    _ctx: AgentCtx,
+    content: str,
+    speaker: str = None,
+    sdp_ratio: float = None,
+    noise_scale: float = None,
+    noise_scale_w: float = None,
+    length_scale: float = None
+) -> bytes:
+    # 函数实现逻辑...
 ```
+该方法接收文本内容、发音人名称、SDP 比例、噪声比例、音素长度噪声比例和语速比例等参数，对输入参数进行校验后，向 TTS API 发送请求，获取生成的音频文件字节数据。
 
-### 开发功能
-
-1. **配置插件参数**：使用 `@plugin.mount_config()` 装饰器创建可配置参数
-
-```python
-@plugin.mount_config()
-class MyPluginConfig(ConfigBase):
-    """插件配置说明"""
-    
-    API_KEY: str = Field(
-        default="",
-        title="API密钥",
-        description="第三方服务的API密钥",
-    )
-```
-
-2. **添加沙盒方法**：使用 `@plugin.mount_sandbox_method()` 添加AI可调用的函数
-
-```python
-@plugin.mount_sandbox_method(SandboxMethodType.AGENT, name="函数名称", description="函数功能描述")
-async def my_function(_ctx: AgentCtx, param1: str) -> str:
-    """实现插件功能的具体逻辑"""
-    return f"处理结果: {param1}"
-```
-
-3. **资源清理**：使用 `@plugin.mount_cleanup_method()` 添加资源清理函数
-
+### 资源清理
+插件还提供了资源清理功能，使用 `@plugin.mount_cleanup_method()` 装饰器定义的 `clean_up` 方法可在需要时清理插件资源：
 ```python
 @plugin.mount_cleanup_method()
 async def clean_up():
-    """清理资源，如数据库连接等"""
-    logger.info("资源已清理")
+    logger.info("TTS Plugin Resources Cleaned Up")
 ```
 
-## 📦 插件发布
-
-完成开发后，你可以：
-
-1. 提交到 GitHub 仓库
-2. 发布到 NekroAI 云社区共享给所有用户
-
-## 🔍 更多资源
-
-- [NekroAgent 官方文档](https://doc.nekro.ai/)
-- [插件开发详细指南](https://doc.nekro.ai/docs/04_plugin_dev/intro.html)
-- [社区交流群](https://qm.qq.com/q/hJlRwD17Ae)：636925153
-
-## 📄 许可证
-
-MIT
+## 许可证
+本插件采用 GNU General Public License v2.0 许可证。 
