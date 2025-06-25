@@ -7,30 +7,25 @@
 为玩家带来真实愉悦的听觉享受。
 """
 
-import os
 import tempfile
 import requests
 import json
-import asyncio
-from nonebot import on_command
+from nonebot import on_command, get_bot
 
 from nonebot.adapters import Bot, Message
 from nonebot.adapters.onebot.v11 import MessageEvent
 from nonebot.matcher import Matcher
 from nonebot.params import CommandArg
-from nekro_agent.matchers.command import command_guard, finish_with
+from nekro_agent.matchers.command import command_guard
+from nonebot.adapters.onebot.v11 import MessageSegment
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from nekro_agent.services.plugin.base import NekroPlugin, ConfigBase, SandboxMethodType
 from nekro_agent.services.plugin.manager import save_plugin_config
 from nekro_agent.api.schemas import AgentCtx
 from nekro_agent.core import logger
 
-headers = {
-    "accept": "application/json",
-    "Content-Type": "application/json"
-}
 
 # 插件实例
 plugin = NekroPlugin(
@@ -47,29 +42,19 @@ plugin = NekroPlugin(
 class TTSConfig(ConfigBase):
     """语音合成配置"""
     API_URL: str = Field(
-        default="https://gsv.ai-lab.top/infer_single",
+        default="https://gsv2p.acgnai.top/infer_single",
         title="TTS API URL",
-        description="TTS服务的基础URL。请前往https://gsv.acgnai.top/,获取token。",
+        description="TTS服务的基础URL。",
     )
     token: str = Field(
         default="None",
         title="token",
-        description="秘钥",
+        description="请前往https://tts.acgnai.top/ ,获取token",
     )
     DEFAULT_MODEL: str = Field(
-        default="【原神】枫丹",
+        default="原神-中文-芙宁娜_ZH",
         title="模型",
         description="默认模型名称",
-    )
-    DEFAULT_SPEAKER: str = Field(
-        default="芙宁娜",
-        title="发音人",
-        description="默认发音人名称",
-    )
-    DEFAULT_emotion: str = Field(
-        default="开心_happy",
-        title="情感",
-        description="情感",
     )
     
 # 获取配置
@@ -85,12 +70,13 @@ async def gl_tts(
     content: str,
 ) -> bytes:
     """文本转语音合成方法
+    插件直接输出语音到聊群，无需在作任何操作，直接调用即可
     
     Args:
         content: 需要合成的文本内容
 
     Returns:
-        bytes: 音频文件的字节数据（WAV格式）
+        None
 
     Raises:
         ValueError: 当输入参数不符合要求时
@@ -101,18 +87,17 @@ async def gl_tts(
     """
 
     data = {
-    "access_token": config.token,
     "model_name": config.DEFAULT_MODEL,
-    "speaker_name": config.DEFAULT_SPEAKER,
+    "emotion": '默认',
+    "version": "v4",
     "prompt_text_lang": "中文",
-    "emotion": config.DEFAULT_emotion,
     "text": content,
     "text_lang": "中文",
     "top_k": 10,
     "top_p": 1,
     "temperature": 1,
     "text_split_method": "按标点符号切",
-    "batch_size": 1,
+    "batch_size": 10,
     "batch_threshold": 0.75,
     "split_bucket": True,
     "speed_facter": 1,
@@ -120,18 +105,26 @@ async def gl_tts(
     "media_type": "wav",
     "parallel_infer": True,
     "repetition_penalty": 1.35,
-    "seed": -1
+    "seed": -1,
+    "sample_steps": 16,
+    "if_sr": False
     }
+    headers = {
+    "accept": "application/json",
+    "Authorization": f"Bearer {config.token}",
+    "Content-Type": "application/json",
+    }
+
 
 
     # 创建临时目录用于存储文件
     with tempfile.TemporaryDirectory() as tmpdir:
         try:
-            response = requests.post(config.API_URL, headers=headers, json=data, timeout=10)
+            response = requests.post(config.API_URL, headers=headers, json=data, timeout=100)
+            logger.debug("请求完成")
+            logger.debug("API响应内容:")
             response.raise_for_status()  # 检查请求是否成功
 
-            logger.debug("API响应内容:")
-            logger.debug(response.text)
 
             try:
                 response_data = response.json()
@@ -146,7 +139,6 @@ async def gl_tts(
                 
                 if audio_url:
                     logger.debug("音频链接:", audio_url)
-                    await download_file(audio_url,tmpdir)
                 else:
                     raise ValueError("未找到音频链接。")
             except json.JSONDecodeError:
@@ -159,13 +151,7 @@ async def gl_tts(
         except Exception as e:
             raise RuntimeError(f"出现未知问题: {e}")
 
-
-        # 读取音频文件
-        with open(tmpdir+'/audio.wav', "rb") as f:
-            audio_data = f.read()
-
-            
-        return audio_data
+        await send_audio(_ctx.from_chat_key, audio_url)
 
 
 @plugin.mount_cleanup_method()
@@ -173,84 +159,30 @@ async def clean_up():
     """清理插件资源"""
     logger.info("TTS Plugin Resources Cleaned Up")
 
-
-async def download_file(audio_url, save_dir):
+async def send_audio(chat_key, file):
+    pairs =chat_key.split("_")
+    chat_type = pairs[0]
+    chat_id = pairs[1]
+    bot = get_bot()
+    audio = MessageSegment.record(file=file)
     try:
-        # 检查保存目录是否存在，如果不存在则创建
-        if not os.path.exists(save_dir):
-            os.makedirs(save_dir)
-
-        # 定义文件的完整路径（保存目录+文件名）
-        file_path = os.path.join(save_dir, "audio.wav")
-
-        logger.info(file_path)
-
-        response = requests.get(audio_url, stream=True, timeout=10)
-        response.raise_for_status()  # 检查请求是否成功
-
-        # 保存音频文件到指定路径
-        with open(file_path, "wb") as file:
-            for chunk in response.iter_content(chunk_size=1024):
-                file.write(chunk)
-        logger.debug(f"音频文件已成功下载并保存为 {file_path}")
-    except requests.exceptions.RequestException as e:
-        raise RuntimeError(f"下载失败: {e}。请检查音频链接的合法性或稍后再试。")
+        if chat_type == 'group':
+            await bot.send_group_msg(group_id=chat_id, message=audio)
+        else:
+            await bot.send_private_msg(user_id=chat_id, message=audio)
     except Exception as e:
-        raise RuntimeError(f"出现未知问题: {e}")
+        raise RuntimeError(f"出现未知问题: {e}")   
+
 
 @on_command('gl_tts_set').handle()
 async def gl_tts_set(matcher: Matcher, event: MessageEvent, bot: Bot, arg: Message = CommandArg()):
     username, cmd_content, chat_key, chat_type = await command_guard(event, bot, arg, matcher)
-    items = cmd_content.split()
-    result_dict = {k:v for k,v in (item.split('=') for item in items)}
-    json_str = json.dumps(result_dict, indent=4)
-    parsed_json = json.loads(json_str)
     try:
-        print('model:',await save_plugin_config('yang208115.gl_tts',{"DEFAULT_MODEL":parsed_json["DEFAULT_MODEL"]}))
-    except Exception as e:
-        pass
-    try:
-        print('speaker:',await save_plugin_config('yang208115.gl_tts',{"DEFAULT_SPEAKER":parsed_json["DEFAULT_SPEAKER"]}))
-    except Exception as e:
-        pass
-    try:
-        print('emotion:',await save_plugin_config('yang208115.gl_tts',{"DEFAULT_emotion":parsed_json["DEFAULT_emotion"]}))
+        print('model:',await save_plugin_config('yang208115.gl_tts',{"DEFAULT_MODEL":cmd_content}))
     except Exception as e:
         pass
 
-@on_command('gl_tts_get_model').handle()
-async def gl_tts_set(matcher: Matcher, event: MessageEvent, bot: Bot, arg: Message = CommandArg()):
-    url = "https://gsv.ai-lab.top/models"
-    headers = {
-        "accept": "application/json"
-    }
-
-    response = requests.get(url, headers=headers)
-    await finish_with(matcher, message=response.text)
-
-@on_command('gl_tts_get_speaker').handle()
-async def gl_tts_set(matcher: Matcher, event: MessageEvent, bot: Bot, arg: Message = CommandArg()):
-    username, cmd_content, chat_key, chat_type = await command_guard(event, bot, arg, matcher)
-    url = "https://gsv.ai-lab.top/spks"
-    headers = {
-        "accept": "application/json",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "model": cmd_content
-    }
-
-    response = requests.post(url, json=data, headers=headers)
-
-    try:
-        data = json.loads(response.text)
-        # 提取speakers部分并格式化
-        speakers = data.get("speakers", {})
-        formatted_speakers = ',\n'.join(
-            f'"{name}": {json.dumps(speaker, ensure_ascii=False)}' for name, speaker in speakers.items()
-        )
-        # 构造最终的格式化字符串
-        formatted_json = f'{{"msg": "获取成功", "speakers": {{\n{formatted_speakers}\n}}}}'
-        await finish_with(matcher, message=formatted_json)
-    except json.JSONDecodeError as e:
-        print(f"JSON格式错误: {e}")
+@on_command('gl_tts_help').handle()
+async def gl_tts_help(matcher: Matcher, event: MessageEvent, bot: Bot, arg: Message = CommandArg()):
+    await matcher.finish(message="使用/gl_tts_set来设置模型\n具体用法:\n/gl_tts_set [模型名]\n/gl_tts_set 原神-中文-芙宁娜_ZH\n\n\
+至于支持什么模型和获取token,请自行前往\nhttps://tts.acgnai.top/ 查询\n查询模型时版本请选择v4")

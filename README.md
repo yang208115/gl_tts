@@ -15,12 +15,9 @@
 
 | 参数名称          | 默认值                     | 描述                       |
 |-------------------|----------------------------|----------------------------|
-| API_URL           | https://gsv.ai-lab.top/infer_single | TTS 服务的基础 URL       |
+| API_URL           | https://gsv2p.acgnai.top/infer_single | TTS 服务的基础 URL       |
 | token             | None                       | 秘钥                       |
-| DEFAULT_MODEL     | 【原神】枫丹               | 默认模型名称               |
-| DEFAULT_SPEAKER   | 芙宁娜                     | 默认发音人名称             |
-| DEFAULT_emotion   | 开心_happy                 | 默认情感                   |
-
+| DEFAULT_MODEL     | 原神-中文-芙宁娜_ZH           | 默认模型名称               |
 ## 主要功能
 
 将文本内容转换为语音，并返回音频字节数据。
@@ -32,13 +29,17 @@
 在聊天中可以通过命令动态更改模型、发音人、情感等参数：
 
 ```plaintext
-/gl_tts_set DEFAULT_emotion=<情感> DEFAULT_SPEAKER=<发音人> DEFAULT_MODEL=<模型>
+/gl_tts_set <模型>
 ```
 
 例如：
 ```plaintext
-/gl_tts_set DEFAULT_emotion=开心_happy DEFAULT_SPEAKER=胡桃 DEFAULT_MODEL=【原神】璃月
+/gl_tts_set 原神-中文-芙宁娜_ZH
 ```
+
+### 获取帮助
+
+可以通过```/gl_tts_help```来获取帮助
 
 ### 发送请求
 
@@ -46,12 +47,6 @@
 2. 使用 `requests.post()` 方法向 TTS API 发送 POST 请求，将 `data` 作为 JSON 数据发送。
 3. 检查请求是否成功，如果成功，则解析响应内容。
 
-### 下载音频文件
-
-1. 从响应数据中获取音频文件的 URL。
-2. 检查保存目录是否存在，如果不存在则创建目录。
-3. 使用 `requests.get()` 方法向音频文件 URL 发送 GET 请求，以流的形式下载文件。
-4. 将下载的文件数据写入到指定的保存路径。
 
 ## 资源清理
 
@@ -59,6 +54,11 @@
 
 ## wiki
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/yang208115/gl_tts)
+
+## 特别鸣谢
+GPT-SoVITS开发者：@花儿不哭  
+模型训练者：@红血球AE3803 & @白菜工厂1145号员工  
+推理特化包适配 & 在线推理：@AI-Hobbyist
 
 ## 许可证
 
