@@ -16,7 +16,7 @@ from nonebot.adapters import Bot, Message
 from nonebot.adapters.onebot.v11 import MessageEvent
 from nonebot.matcher import Matcher
 from nonebot.params import CommandArg
-from nekro_agent.matchers.command import command_guard
+from nekro_agent.adapters.onebot_v11.matchers.command import command_guard
 from nonebot.adapters.onebot.v11 import MessageSegment
 
 from pydantic import Field
@@ -49,7 +49,7 @@ class TTSConfig(ConfigBase):
     token: str = Field(
         default="None",
         title="token",
-        description="请前往https://tts.acgnai.top/ ,获取token",
+        description="<a href='https://tts.acgnai.top ' target='_blank'>点击请往token</a> tts.acgnai.top的token",
     )
     DEFAULT_MODEL: str = Field(
         default="原神-中文-芙宁娜_ZH",
@@ -121,8 +121,8 @@ async def gl_tts(
     with tempfile.TemporaryDirectory() as tmpdir:
         try:
             response = requests.post(config.API_URL, headers=headers, json=data, timeout=100)
-            logger.debug("请求完成")
-            logger.debug("API响应内容:")
+            logger.info("请求完成")
+            logger.info(f"API响应内容:{response.json()}")
             response.raise_for_status()  # 检查请求是否成功
 
 
@@ -162,11 +162,11 @@ async def clean_up():
 async def send_audio(chat_key, file):
     pairs =chat_key.split("_")
     chat_type = pairs[0]
-    chat_id = pairs[1]
+    chat_id = pairs[2]
     bot = get_bot()
     audio = MessageSegment.record(file=file)
     try:
-        if chat_type == 'group':
+        if chat_type == 'onebot_v11-group':
             await bot.send_group_msg(group_id=chat_id, message=audio)
         else:
             await bot.send_private_msg(user_id=chat_id, message=audio)
